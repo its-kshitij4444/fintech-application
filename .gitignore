@@ -3,6 +3,7 @@ build/
 target/
 *.class
 *.war
+!app.war
 *.ear
 
 # Eclipse-specific files
