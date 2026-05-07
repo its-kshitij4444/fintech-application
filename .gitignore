@@ -12,9 +12,6 @@ target/
 .settings/
 .pydevproject
 
-# Database credentials
-src/main/java/livepricetracker/DBConnection.java
-
 # ==================== PYTHON ====================
 src/main/webapp/python/__pycache__/
 src/main/webapp/python/logs/
