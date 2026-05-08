@@ -1,0 +1,9 @@
+flask
+flask-cors
+breeze-connect
+groq
+pandas
+pyotp
+selenium
+webdriver-manager
+zipfile36

@@ -16,11 +16,6 @@ import pandas as pd
 from difflib import get_close_matches
 import env_variables
 from groq import Groq
-
-import os
-import zipfile
-import urllib.request
-
 app = Flask(__name__)
 CORS(app)
 
@@ -33,40 +28,13 @@ LLM_MODEL = env_variables.LLM_MODEL
 
 _scrip_df = None
 
-SCRIP_MASTER_URL = "https://directlink.icicidirect.com/NewSecurityMaster/SecurityMaster.zip"
-ZIP_PATH = "SecurityMaster.zip"
-
-def get_scrip_filename():
-    today = datetime.now().strftime("%Y-%m-%d")
-    return f"NSEScripMaster_{today}.csv"
-
-def download_scrip_master():
-    filename = get_scrip_filename()
-    if os.path.exists(filename):
-        print(f"✅ Scrip master already exists for today: {filename}")
-        return filename
-    for f in os.listdir("."):
-        if f.startswith("NSEScripMaster_") and f.endswith(".csv"):
-            os.remove(f)
-            print(f"🗑️ Deleted old scrip master: {f}")
-    print(f"⬇️ Downloading Security Master...")
-    urllib.request.urlretrieve(SCRIP_MASTER_URL, ZIP_PATH)
-    with zipfile.ZipFile(ZIP_PATH, 'r') as z:
-        nse_file = [f for f in z.namelist() if "NSEScripMaster" in f][0]
-        z.extract(nse_file, ".")
-        os.rename(nse_file, filename)
-        print(f"📦 Extracted and renamed to: {filename}")
-    os.remove(ZIP_PATH)
-    print(f"🗑️ Deleted zip file")
-    return filename
 
 def load_scrip_master():
     global _scrip_df
     if _scrip_df is not None:
         return _scrip_df
     try:
-        filename = download_scrip_master()
-        df = pd.read_csv(filename, low_memory=False)
+        df = pd.read_csv("NSEScripMaster.csv", low_memory=False)
         df.columns = [c.strip().strip('"') for c in df.columns]
         for col in df.select_dtypes(include="object").columns:
             df[col] = df[col].astype(str).str.strip().str.strip('"')
@@ -486,8 +454,8 @@ def quote():
 def scrip_list():
     """Serves scrip master for autocomplete in script.js"""
     try:
-        filename = download_scrip_master()
-        df = pd.read_csv(filename, low_memory=False)
+        import pandas as pd
+        df = pd.read_csv("NSEScripMaster.csv", low_memory=False)
         df.columns = [c.strip().strip('"') for c in df.columns]
         for col in df.select_dtypes(include="object").columns:
             df[col] = df[col].astype(str).str.strip().str.strip('"')
@@ -561,7 +529,5 @@ def health():
 
 
 if __name__ == '__main__':
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Starting Stock Agent Server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print("🚀 Starting Stock Agent Server on http://localhost:5000")
+    app.run(host='0.0.0.0', port=5000, debug=False)

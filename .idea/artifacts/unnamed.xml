@@ -1,0 +1,16 @@
+<component name="ArtifactManager">
+  <artifact type="exploded-war" name="unnamed">
+    <output-path>$PROJECT_DIR$/classes/artifacts/unnamed</output-path>
+    <root id="root">
+      <element id="directory" name="WEB-INF">
+        <element id="directory" name="classes">
+          <element id="module-output" name="LivePriceTracker" />
+        </element>
+        <element id="directory" name="lib">
+          <element id="library" level="module" name="json-20230227.jar" module-name="LivePriceTracker" />
+        </element>
+      </element>
+      <element id="dir-copy" path="$PROJECT_DIR$/src/main/webapp" />
+    </root>
+  </artifact>
+</component>

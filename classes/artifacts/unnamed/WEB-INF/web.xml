@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+                             http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+
+    <display-name>LivePriceTracker</display-name>
+
+    <!-- Welcome File -->
+    <welcome-file-list>
+        <welcome-file>index.jsp</welcome-file>
+    </welcome-file-list>
+
+	<servlet>
+	    <servlet-name>LoginServlet</servlet-name>
+	    <servlet-class>livepricetracker.LoginServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>LoginServlet</servlet-name>
+	    <url-pattern>/LoginServlet</url-pattern>
+	</servlet-mapping>
+	
+	<servlet>
+	    <servlet-name>RegisterServlet</servlet-name>
+	    <servlet-class>livepricetracker.RegisterServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>RegisterServlet</servlet-name>
+	    <url-pattern>/RegisterServlet</url-pattern>
+	</servlet-mapping>
+	<servlet>
+	    <servlet-name>LogoutServlet</servlet-name>
+	    <servlet-class>livepricetracker.LogoutServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>LogoutServlet</servlet-name>
+	    <url-pattern>/LogoutServlet</url-pattern>
+	</servlet-mapping>
+	<servlet>
+    <servlet-name>UpdateSettingsServlet</servlet-name>
+    <servlet-class>livepricetracker.UpdateSettingsServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>UpdateSettingsServlet</servlet-name>
+	    <url-pattern>/UpdateSettingsServlet</url-pattern>
+	</servlet-mapping>
+
+	
+	<servlet>
+	    <servlet-name>TradeHistoryServlet</servlet-name>
+	    <servlet-class>livepricetracker.TradeHistoryServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>TradeHistoryServlet</servlet-name>
+	    <url-pattern>/TradeHistoryServlet</url-pattern>
+	</servlet-mapping>
+	
+	
+	<servlet>
+	    <servlet-name>TradeServlet</servlet-name>
+	    <servlet-class>livepricetracker.TradeServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>TradeServlet</servlet-name>
+	    <url-pattern>/TradeServlet</url-pattern>
+	</servlet-mapping>
+	
+	<servlet>
+	    <servlet-name>PortfolioServlet</servlet-name>
+	    <servlet-class>livepricetracker.PortfolioServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>PortfolioServlet</servlet-name>
+	    <url-pattern>/PortfolioServlet</url-pattern>
+	</servlet-mapping>
+	
+	<servlet>
+	    <servlet-name>ChatServlet</servlet-name>
+	    <servlet-class>livepricetracker.ChatServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+	    <servlet-name>ChatServlet</servlet-name>
+	    <url-pattern>/ChatServlet</url-pattern>
+	</servlet-mapping>
+		
+	
+</web-app>
