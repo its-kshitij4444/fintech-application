@@ -7,18 +7,28 @@ import pyotp
 import urllib.parse
 import time
 import env_variables
+import platform
 
-API_KEY = env_variables.BREEZE_API_KEY
-ICICI_USER = env_variables.ICICI_USER
-ICICI_PASS = env_variables.ICICI_PASS
-TOTP_SECRET = env_variables.TOTP_SECRET # explained below
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+API_KEY = os.environ.get("BREEZE_API_KEY")
+ICICI_USER = os.environ.get("ICICI_USER")
+ICICI_PASS = os.environ.get("ICICI_PASS")
+TOTP_SECRET = os.environ.get("TOTP_SECRET") # explained below
 
 def get_session_token() -> str:
     options = Options()
     # ❌ Keep headless OFF while debugging so you can see the browser
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+
+    if platform.system() == "Linux":
+        options.binary_location = "/usr/bin/google-chrome"
 
     driver = webdriver.Chrome(options=options)
     wait = WebDriverWait(driver, 20)

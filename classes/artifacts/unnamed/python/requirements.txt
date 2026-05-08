@@ -1,0 +1,10 @@
+flask
+flask-cors
+breeze-connect
+groq
+pandas
+pyotp
+python-dotenv
+selenium
+webdriver-manager
+zipfile36

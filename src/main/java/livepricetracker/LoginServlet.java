@@ -91,7 +91,7 @@ public class LoginServlet extends HttpServlet {
                         int previewLen = Math.min(10, sessionToken.length());
                         System.out.println("✅ Breeze token stored: " + sessionToken.substring(0, previewLen) + "...");
 
-                        String jsonBody = "{\"sessiontoken\": \"" + sessionToken + "\"}";
+                        String jsonBody = "{\"session_token\": \"" + sessionToken + "\"}";
 
                         String[] backendUrls = {
                                 "https://fintech-application-backend.onrender.com/init-session",
