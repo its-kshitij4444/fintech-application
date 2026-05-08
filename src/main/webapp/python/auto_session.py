@@ -7,6 +7,7 @@ import pyotp
 import urllib.parse
 import time
 import env_variables
+import platform
 
 import os
 from dotenv import load_dotenv
@@ -24,7 +25,11 @@ def get_session_token() -> str:
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    driver = webdriver.Chrome(options=options)
+    if platform.system() == "Linux":
+        options.binary_location = "/usr/bin/google-chrome"
+
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
     wait = WebDriverWait(driver, 20)
 
     login_url = "https://api.icicidirect.com/apiuser/login?api_key=" + urllib.parse.quote(API_KEY)
