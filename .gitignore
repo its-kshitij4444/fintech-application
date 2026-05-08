@@ -27,3 +27,4 @@ Thumbs.db
 *.log
 src/main/webapp/js/script_old.js
 src/main/webapp/js/stockChart_old.js
+src/main/webapp/python/.env

@@ -8,10 +8,14 @@ import urllib.parse
 import time
 import env_variables
 
-API_KEY = env_variables.BREEZE_API_KEY
-ICICI_USER = env_variables.ICICI_USER
-ICICI_PASS = env_variables.ICICI_PASS
-TOTP_SECRET = env_variables.TOTP_SECRET # explained below
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+API_KEY = os.environ.get("BREEZE_API_KEY")
+ICICI_USER = os.environ.get("ICICI_USER")
+ICICI_PASS = os.environ.get("ICICI_PASS")
+TOTP_SECRET = os.environ.get("TOTP_SECRET") # explained below
 
 def get_session_token() -> str:
     options = Options()

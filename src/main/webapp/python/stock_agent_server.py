@@ -14,10 +14,13 @@ from datetime import datetime
 from flask_cors import CORS
 import pandas as pd
 from difflib import get_close_matches
-import env_variables
 from groq import Groq
 
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import zipfile
 import urllib.request
 
@@ -27,9 +30,11 @@ CORS(app)
 # print(f"DEBUG GROQ_API_KEY = '{env_variables.GROQ_API_KEY}'")
 # print(f"DEBUG LLM_MODEL    = '{env_variables.LLM_MODEL}'")
 
-groq_client = Groq(api_key=env_variables.GROQ_API_KEY)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3-32b")
+
+groq_client = Groq(api_key=GROQ_API_KEY)
 # print(f"DEBUG groq_client type = {type(groq_client)}")
-LLM_MODEL = env_variables.LLM_MODEL
 
 _scrip_df = None
 
@@ -115,8 +120,8 @@ def resolve_symbol(text: str) -> str:
 # ─────────────────────────────────────────────
 # BREEZE CONFIGURATION
 # ─────────────────────────────────────────────
-BREEZE_API_KEY = env_variables.BREEZE_API_KEY
-BREEZE_API_SECRET = env_variables.BREEZE_API_SECRET
+BREEZE_API_KEY = os.environ.get("BREEZE_API_KEY")
+BREEZE_API_SECRET = os.environ.get("BREEZE_API_SECRET")
 BREEZE_SESSION = ""
 
 breeze = BreezeConnect(api_key=BREEZE_API_KEY)
