@@ -21,15 +21,16 @@ TOTP_SECRET = os.environ.get("TOTP_SECRET") # explained below
 def get_session_token() -> str:
     options = Options()
     # ❌ Keep headless OFF while debugging so you can see the browser
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
 
     if platform.system() == "Linux":
         options.binary_location = "/usr/bin/google-chrome"
 
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(options=options)
     wait = WebDriverWait(driver, 20)
 
     login_url = "https://api.icicidirect.com/apiuser/login?api_key=" + urllib.parse.quote(API_KEY)
