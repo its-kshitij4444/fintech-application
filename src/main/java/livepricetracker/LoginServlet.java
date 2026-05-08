@@ -11,10 +11,11 @@ public class LoginServlet extends HttpServlet {
             throws ServletException, IOException {
 
         String username = request.getParameter("username");
-        String password = PasswordUtils.hashPassword(request.getParameter("password"));
+        String rawPassword = request.getParameter("password");
+        String password = PasswordUtils.hashPassword(rawPassword);
 
         if (username == null || username.trim().isEmpty() ||
-                password == null || password.isEmpty()) {
+                rawPassword == null || rawPassword.trim().isEmpty()) {
             response.sendRedirect("login.jsp?error=Please enter username and password");
             return;
         }
@@ -46,19 +47,19 @@ public class LoginServlet extends HttpServlet {
                 session.setAttribute("address", rs.getString("address"));
                 session.setAttribute("memberSince", rs.getString("created_at"));
                 session.setAttribute("accountType", rs.getString("account_type"));
-
-                PreparedStatement updateStmt = conn.prepareStatement(
-                        "UPDATE users SET last_login = NOW() WHERE username = ?");
-                updateStmt.setString(1, username);
-                updateStmt.executeUpdate();
-                updateStmt.close();
-
                 session.setAttribute("loginTime", ZonedDateTime.now(ZoneId.of("Asia/Kolkata")).toString());
                 session.setMaxInactiveInterval(1800);
 
-                // ── Auto-generate Breeze session token via Python script ──
+                PreparedStatement updateStmt = conn.prepareStatement(
+                        "UPDATE users SET last_login = NOW() WHERE username = ?");
+                updateStmt.setString(1, username.trim());
+                updateStmt.executeUpdate();
+                updateStmt.close();
+
+                // Auto-generate Breeze session token via Python script
                 try {
                     String scriptPath = getServletContext().getRealPath("/python/auto_session.py");
+                    System.out.println("🐍 Running Python script: " + scriptPath);
 
                     ProcessBuilder pb = new ProcessBuilder("python", scriptPath);
                     pb.redirectErrorStream(true);
@@ -70,48 +71,102 @@ public class LoginServlet extends HttpServlet {
 
                     String sessionToken = null;
                     String line;
+                    StringBuilder fullOutput = new StringBuilder();
+
                     while ((line = reader.readLine()) != null) {
                         line = line.trim();
                         if (!line.isEmpty()) {
+                            fullOutput.append(line).append("\n");
                             sessionToken = line;
                         }
                     }
-                    process.waitFor();
 
-                    System.out.println("🔑 Raw token received: [" + sessionToken + "]");
+                    int exitCode = process.waitFor();
+                    System.out.println("🐍 Python exit code: " + exitCode);
+                    System.out.println("📜 Python output:\n" + fullOutput);
 
-                    if (sessionToken != null && !sessionToken.isEmpty()) {
+                    if (exitCode == 0 && sessionToken != null && !sessionToken.isEmpty()) {
                         session.setAttribute("breezeToken", sessionToken);
 
                         int previewLen = Math.min(10, sessionToken.length());
-                        System.out.println("✅ Breeze token stored: " + sessionToken.substring(0, previewLen));
+                        System.out.println("✅ Breeze token stored: " + sessionToken.substring(0, previewLen) + "...");
 
-                        java.net.URL url = new java.net.URL("http://localhost:5000/init-session");
-                        java.net.HttpURLConnection conn2 = (java.net.HttpURLConnection) url.openConnection();
-                        conn2.setRequestMethod("POST");
-                        conn2.setRequestProperty("Content-Type", "application/json");
-                        conn2.setDoOutput(true);
+                        String jsonBody = "{\"sessiontoken\": \"" + sessionToken + "\"}";
 
-                        String jsonBody = "{\"session_token\": \"" + sessionToken + "\"}";
-                        System.out.println("📤 Sending to Flask: " + jsonBody);
+                        String[] backendUrls = {
+                                "https://fintech-application-backend.onrender.com/init-session",
+                                "http://localhost:5000/init-session"
+                        };
 
-                        try (OutputStream os = conn2.getOutputStream()) {
-                            os.write(jsonBody.getBytes("UTF-8"));
+                        boolean sent = false;
+                        Exception lastError = null;
+
+                        for (String backendUrl : backendUrls) {
+                            java.net.HttpURLConnection conn2 = null;
+                            try {
+                                java.net.URL url = new java.net.URL(backendUrl);
+                                conn2 = (java.net.HttpURLConnection) url.openConnection();
+                                conn2.setConnectTimeout(5000);
+                                conn2.setReadTimeout(5000);
+                                conn2.setRequestMethod("POST");
+                                conn2.setRequestProperty("Content-Type", "application/json");
+                                conn2.setDoOutput(true);
+
+                                System.out.println("📤 Sending token to: " + backendUrl);
+
+                                try (OutputStream os = conn2.getOutputStream()) {
+                                    os.write(jsonBody.getBytes("UTF-8"));
+                                    os.flush();
+                                }
+
+                                int responseCode = conn2.getResponseCode();
+                                System.out.println("🔁 Response code from " + backendUrl + ": " + responseCode);
+
+                                InputStream responseStream = (responseCode >= 200 && responseCode < 400)
+                                        ? conn2.getInputStream()
+                                        : conn2.getErrorStream();
+
+                                if (responseStream != null) {
+                                    BufferedReader apiReader = new BufferedReader(new InputStreamReader(responseStream));
+                                    String apiLine;
+                                    StringBuilder apiResponse = new StringBuilder();
+                                    while ((apiLine = apiReader.readLine()) != null) {
+                                        apiResponse.append(apiLine);
+                                    }
+                                    System.out.println("📥 Response body: " + apiResponse);
+                                }
+
+                                if (responseCode >= 200 && responseCode < 300) {
+                                    sent = true;
+                                    System.out.println("✅ Session token accepted by backend: " + backendUrl);
+                                    break;
+                                }
+
+                            } catch (Exception ex) {
+                                lastError = ex;
+                                System.out.println("⚠️ Failed calling " + backendUrl + ": " + ex.getMessage());
+                            } finally {
+                                if (conn2 != null) {
+                                    conn2.disconnect();
+                                }
+                            }
                         }
 
-                        int responseCode = conn2.getResponseCode();
-                        System.out.println("🔁 Flask /init-session response code: " + responseCode);
-                        conn2.disconnect();
+                        if (!sent) {
+                            System.out.println("❌ Could not send session token to any backend endpoint");
+                            if (lastError != null) {
+                                lastError.printStackTrace();
+                            }
+                        }
 
                     } else {
-                        System.out.println("⚠️ Token was null or empty after script ran");
+                        System.out.println("⚠️ Token was null/empty or Python script failed");
                     }
 
                 } catch (Exception e) {
                     System.out.println("⚠️ Breeze token fetch failed: " + e.getMessage());
                     e.printStackTrace();
                 }
-                // ─────────────────────────────────────────────────────────
 
                 response.sendRedirect("dashboard.jsp");
 
