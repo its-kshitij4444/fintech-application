@@ -17,7 +17,7 @@ src/main/webapp/python/__pycache__/
 src/main/webapp/python/logs/
 src/main/webapp/python/*.pyc
 src/main/webapp/python/env_variables.py
-src/main/webapp/python/NSEScripMaster.csv
+src/main/webapp/python/NSEScripMaster*.csv
 src/main/webapp/python/stock_agent_server1.py
 
 # ==================== GENERAL ====================
