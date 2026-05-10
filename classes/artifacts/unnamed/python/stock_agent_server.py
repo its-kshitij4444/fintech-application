@@ -585,12 +585,12 @@ def health():
     })
 
 
-print("\n========== ROUTES ==========")
-
-for rule in app.url_map.iter_rules():
-    print(rule)
-
-print("============================\n")
+# print("\n========== ROUTES ==========")
+#
+# for rule in app.url_map.iter_rules():
+#     print(rule)
+#
+# print("============================\n")
 
 # ─────────────────────────────────────────────
 # MAIN

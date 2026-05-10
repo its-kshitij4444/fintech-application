@@ -433,6 +433,187 @@ def stock_data(symbol: str) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+# ─────────────────────────────────────────────
+# SYSTEM PROMPT
+# ─────────────────────────────────────────────
+SYSTEM_PROMPT = """You are StockSense, an intelligent NSE stock market analyst assistant designed for both beginners and professional traders. You always fetch live data before answering any stock-related question.
+
+Reply ONLY with a single JSON object. No extra text, no markdown, no explanation outside the JSON.
+
+─── STRICT BOUNDARIES (NON-NEGOTIABLE) ───
+You are ONLY a stock market and trading assistant. You exist solely to help users with:
+- NSE/BSE stock prices and analysis
+- Trading strategies and concepts
+- Market education for beginners and professionals
+- Risk management and finance
+
+You MUST REFUSE any message that is not related to stocks, trading, finance, or investing.
+For ANY off-topic message — sports, movies, weather, personal advice, coding, general chat — respond ONLY with:
+{"step": "OUTPUT", "content": "I'm StockSense, a dedicated stock market assistant. I can only help with stocks, trading strategies, market analysis, and finance topics. What would you like to know about the markets? 📊"}
+
+NEVER deviate from this. NEVER call the TOOL for non-stock messages.
+NEVER treat a random word as a stock symbol unless the user explicitly asks for its price or analysis.
+
+─── STEP TYPES ───
+
+For greetings / general chat:
+{"step": "OUTPUT", "content": "your reply"}
+
+To fetch stock data (ALWAYS do this first for any stock question):
+{"step": "TOOL", "tool": "stock_data", "input": "<name or symbol exactly as user said>"}
+
+After receiving tool data — produce a rich analysis:
+{"step": "OUTPUT", "content": "your full analysis here"}
+
+─── ANALYSIS FORMAT (after tool data) ───
+
+Structure your response like this (plain text, no JSON inside content):
+
+📊 [Company Name] ([SYMBOL]) — Live Analysis
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 Current Price: ₹[price]
+📈 Today: Open ₹[open] | High ₹[high] | Low ₹[low] | Change [change]%
+
+📅 52-Week Range: ₹[52w_low] → ₹[52w_high]
+   • Currently [X]% below 52-week high
+   • Currently [X]% above 52-week low
+
+📉 30-Day Momentum: [+/-X]% — [briefly explain what this means]
+
+⚡ Volatility: [X]% annualised — Risk Level: [Low/Medium/High]
+   • [1 sentence explaining what this means for the user]
+
+🎯 Risk Assessment:
+   • [2-3 sentences: is it risky to buy NOW based on volatility + momentum + 52w position?]
+   • [Mention if near 52w high = stretched, near 52w low = potential value or falling knife]
+   • [Mention if momentum is positive or negative]
+
+💡 Key Takeaway:
+   • For beginners: [simple 1-sentence advice]
+   • For traders: [technical 1-sentence insight]
+
+⚠️ Disclaimer: This is not financial advice. Always do your own research.
+
+─── RULES ───
+- ALWAYS call the TOOL first before any stock analysis — never guess or fabricate data
+- Put the stock name EXACTLY as the user said it in "input"
+- US stocks are NOT supported — inform the user politely
+- If data is missing (N/A), skip that field gracefully
+- Increase max_tokens is set to 1024 so use the full format above
+"""
+
+
+# ─────────────────────────────────────────────
+# AGENT LOOP — unchanged logic, powers chat.jsp
+# ─────────────────────────────────────────────
+def run_agent(user_prompt, model=None):
+    if model is None:
+        model = LLM_MODEL
+    print(f"🤖 Using model: {model}")
+    messages = [{"role": "user", "content": user_prompt}]
+
+    for iteration in range(6):
+        try:
+            print(f"📨 [{iteration}] Messages sent: {[m['role']+':'+m['content'][:40] for m in messages]}")
+            response = groq_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    *messages
+                ],
+                temperature=0.1,
+                max_tokens=1024,
+                stream=False,
+            )
+            raw_output = response.choices[0].message.content.strip()
+            print(f"🔍 [{iteration}] RAW: {repr(raw_output)}")
+            raw_output = re.sub(r'```(?:json)?\s*', '', raw_output).strip().replace('```', '')
+            raw_output = re.sub(r'\}+$', '}', raw_output)
+            print(f"🔍 [{iteration}] CLEANED: {repr(raw_output)}")
+
+            match = re.search(r'\{.*?\}', raw_output, re.DOTALL)
+            if match:
+                raw_output = match.group(0)
+
+            json_objects = []
+            buffer = ""
+            for line in raw_output.split('\n'):
+                buffer += line
+                try:
+                    json_obj = json.loads(buffer)
+                    json_objects.append(json_obj)
+                    buffer = ""
+                except:
+                    pass
+
+            if not json_objects:
+                try:
+                    obj = json.loads(raw_output)
+                    json_objects.append(obj)
+                except json.JSONDecodeError:
+                    return "❌ Failed to parse response"
+
+            if not json_objects:
+                break
+
+            parsed = json_objects[0]
+            print(f"📌 Iteration {iteration} | step={parsed.get('step')} | content={parsed.get('content','')[:60]}")
+
+            step = parsed.get("step", "")
+            content = parsed.get("content", "")
+            tool_input = parsed.get("input", "")
+
+            if step == "OUTPUT":
+                tool_was_called = any("TOOL" in str(m) for m in messages)
+                stock_keywords = ["price", "stock", "share", "nse", "bse", "market", "ltp"]
+                is_stock_query = any(kw in user_prompt.lower() for kw in stock_keywords)
+                if is_stock_query and not tool_was_called:
+                    messages.append({"role": "assistant", "content": raw_output})
+                    messages.append({"role": "user", "content": "You MUST call TOOL step first!"})
+                    continue
+                return content
+
+            elif step == "TOOL":
+                print(f"🔧 TOOL called with input: '{tool_input}'")
+                result = stock_data(tool_input)
+                print(f"📊 Tool result: {result}")
+                messages.append({"role": "assistant", "content": raw_output})
+                messages.append({
+                    "role": "user",
+                    "content": f'Data: {result}. Respond with: {{"step": "OUTPUT", "content": "..."}}'
+                })
+
+            else:
+                messages.append({"role": "assistant", "content": raw_output})
+
+        except Exception as e:
+            print(f"💥 EXCEPTION at iteration {iteration}: {repr(e)}")
+            return f"❌ Error: {str(e)}"
+
+    return "Unable to get response from agent"
+
+# ─────────────────────────────────────────────
+# ROUTES
+# ─────────────────────────────────────────────
+
+
+# Used by ChatServlet → chat.jsp
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        data = request.get_json()
+        user_message = data.get('message', '')
+        model = data.get('model', 'qwen/qwen3-32b')  # ← read model
+
+        if not user_message:
+            return jsonify({"error": "Message required"}), 400
+
+        reply = run_agent(user_message, model=model)  # ← pass to agent
+        return jsonify({"reply": reply})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 # ─────────────────────────────────────────────
 # ROUTES
