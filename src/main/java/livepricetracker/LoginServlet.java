@@ -7,6 +7,22 @@ import java.sql.*;
 import java.time.*;
 
 public class LoginServlet extends HttpServlet {
+    private boolean isMarketOpen() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.of("Asia/Kolkata"));
+        int day  = now.getDayOfWeek().getValue(); // 1=Mon, 7=Sun
+        int hour = now.getHour();
+        int min  = now.getMinute();
+
+        if (day >= 6) return false; // Saturday or Sunday
+
+        // Before 9:15 AM or after 3:30 PM
+        int timeNow    = hour * 100 + min;
+        int marketOpen  = 9 * 100 + 15;   // 915
+        int marketClose = 15 * 100 + 30;  // 1530
+
+        return timeNow >= marketOpen && timeNow <= marketClose;
+    }
+
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
 
@@ -57,7 +73,7 @@ public class LoginServlet extends HttpServlet {
                 updateStmt.close();
 
                 // Auto-generate Breeze session token via Python script
-                try {
+                if(isMarketOpen()) try {
                     String scriptPath = getServletContext().getRealPath("/python/auto_session.py");
                     System.out.println("🐍 Running Python script: " + scriptPath);
 

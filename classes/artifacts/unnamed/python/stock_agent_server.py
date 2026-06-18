@@ -18,6 +18,11 @@ import zipfile
 import urllib.request
 import statistics
 
+import yfinance as yf
+import pytz
+from datetime import datetime
+
+
 import pandas as pd
 
 from datetime import datetime, timedelta
@@ -433,30 +438,271 @@ def stock_data(symbol: str) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+def stock_data_yfinance(symbol: str) -> str:
+    """Returns latest quote data from yfinance in a format compatible with /quote."""
+    try:
+        symbol = symbol.upper().strip()
+        symbol = re.sub(r"\.(NS|BO|NSE|BSE)$", "", symbol)
+
+        yf_symbol = f"{symbol}.NS"
+        ticker = yf.Ticker(yf_symbol)
+
+        hist = ticker.history(period="2d", interval="1d")
+
+        if hist.empty:
+            return json.dumps({"error": f"No yfinance quote for {symbol}"})
+
+        latest = hist.iloc[-1]
+
+        open_price = float(latest["Open"]) if pd.notna(latest["Open"]) else 0
+        high_price = float(latest["High"]) if pd.notna(latest["High"]) else 0
+        low_price  = float(latest["Low"]) if pd.notna(latest["Low"]) else 0
+        close_price = float(latest["Close"]) if pd.notna(latest["Close"]) else 0
+        volume = int(latest["Volume"]) if pd.notna(latest["Volume"]) else 0
+
+        if open_price:
+            change_amt = round(close_price - open_price, 2)
+            change_pct = round(((close_price - open_price) / open_price) * 100, 2)
+        else:
+            change_amt = "N/A"
+            change_pct = "N/A"
+
+        time_str = str(hist.index[-1])
+
+        return json.dumps({
+            "symbol": symbol,
+            "price": round(close_price, 2),
+            "open": round(open_price, 2),
+            "high": round(high_price, 2),
+            "low": round(low_price, 2),
+            "change_amt": change_amt,
+            "change_pct": change_pct,
+            "volume": volume,
+            "time": time_str
+        })
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+# ─────────────────────────────────────────────
+# SYSTEM PROMPT
+# ─────────────────────────────────────────────
+SYSTEM_PROMPT = """You are StockSense, an intelligent NSE stock market analyst assistant designed for both beginners and professional traders. You always fetch live data before answering any stock-related question.
+
+Reply ONLY with a single JSON object. No extra text, no markdown, no explanation outside the JSON.
+
+─── STRICT BOUNDARIES (NON-NEGOTIABLE) ───
+You are ONLY a stock market and trading assistant. You exist solely to help users with:
+- NSE/BSE stock prices and analysis
+- Trading strategies and concepts
+- Market education for beginners and professionals
+- Risk management and finance
+
+You MUST REFUSE any message that is not related to stocks, trading, finance, or investing.
+For ANY off-topic message — sports, movies, weather, personal advice, coding, general chat — respond ONLY with:
+{"step": "OUTPUT", "content": "I'm StockSense, a dedicated stock market assistant. I can only help with stocks, trading strategies, market analysis, and finance topics. What would you like to know about the markets? 📊"}
+
+NEVER deviate from this. NEVER call the TOOL for non-stock messages.
+NEVER treat a random word as a stock symbol unless the user explicitly asks for its price or analysis.
+
+─── STEP TYPES ───
+
+For greetings / general chat:
+{"step": "OUTPUT", "content": "your reply"}
+
+To fetch stock data (ALWAYS do this first for any stock question):
+{"step": "TOOL", "tool": "stock_data", "input": "<name or symbol exactly as user said>"}
+
+After receiving tool data — produce a rich analysis:
+{"step": "OUTPUT", "content": "your full analysis here"}
+
+─── ANALYSIS FORMAT (after tool data) ───
+
+Structure your response like this (plain text, no JSON inside content):
+
+📊 [Company Name] ([SYMBOL]) — Live Analysis
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 Current Price: ₹[price]
+📈 Today: Open ₹[open] | High ₹[high] | Low ₹[low] | Change [change]%
+
+📅 52-Week Range: ₹[52w_low] → ₹[52w_high]
+   • Currently [X]% below 52-week high
+   • Currently [X]% above 52-week low
+
+📉 30-Day Momentum: [+/-X]% — [briefly explain what this means]
+
+⚡ Volatility: [X]% annualised — Risk Level: [Low/Medium/High]
+   • [1 sentence explaining what this means for the user]
+
+🎯 Risk Assessment:
+   • [2-3 sentences: is it risky to buy NOW based on volatility + momentum + 52w position?]
+   • [Mention if near 52w high = stretched, near 52w low = potential value or falling knife]
+   • [Mention if momentum is positive or negative]
+
+💡 Key Takeaway:
+   • For beginners: [simple 1-sentence advice]
+   • For traders: [technical 1-sentence insight]
+
+⚠️ Disclaimer: This is not financial advice. Always do your own research.
+
+─── RULES ───
+- ALWAYS call the TOOL first before any stock analysis — never guess or fabricate data
+- Put the stock name EXACTLY as the user said it in "input"
+- US stocks are NOT supported — inform the user politely
+- If data is missing (N/A), skip that field gracefully
+- Increase max_tokens is set to 1024 so use the full format above
+"""
+
+
+# ─────────────────────────────────────────────
+# AGENT LOOP — unchanged logic, powers chat.jsp
+# ─────────────────────────────────────────────
+def run_agent(user_prompt, model=None):
+    if model is None:
+        model = LLM_MODEL
+    print(f"🤖 Using model: {model}")
+    messages = [{"role": "user", "content": user_prompt}]
+
+    for iteration in range(6):
+        try:
+            print(f"📨 [{iteration}] Messages sent: {[m['role']+':'+m['content'][:40] for m in messages]}")
+            response = groq_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    *messages
+                ],
+                temperature=0.1,
+                max_tokens=1024,
+                stream=False,
+            )
+            raw_output = response.choices[0].message.content.strip()
+            print(f"🔍 [{iteration}] RAW: {repr(raw_output)}")
+            raw_output = re.sub(r'```(?:json)?\s*', '', raw_output).strip().replace('```', '')
+            raw_output = re.sub(r'\}+$', '}', raw_output)
+            print(f"🔍 [{iteration}] CLEANED: {repr(raw_output)}")
+
+            match = re.search(r'\{.*?\}', raw_output, re.DOTALL)
+            if match:
+                raw_output = match.group(0)
+
+            json_objects = []
+            buffer = ""
+            for line in raw_output.split('\n'):
+                buffer += line
+                try:
+                    json_obj = json.loads(buffer)
+                    json_objects.append(json_obj)
+                    buffer = ""
+                except:
+                    pass
+
+            if not json_objects:
+                try:
+                    obj = json.loads(raw_output)
+                    json_objects.append(obj)
+                except json.JSONDecodeError:
+                    return "❌ Failed to parse response"
+
+            if not json_objects:
+                break
+
+            parsed = json_objects[0]
+            print(f"📌 Iteration {iteration} | step={parsed.get('step')} | content={parsed.get('content','')[:60]}")
+
+            step = parsed.get("step", "")
+            content = parsed.get("content", "")
+            tool_input = parsed.get("input", "")
+
+            if step == "OUTPUT":
+                tool_was_called = any("TOOL" in str(m) for m in messages)
+                stock_keywords = ["price", "stock", "share", "nse", "bse", "market", "ltp"]
+                is_stock_query = any(kw in user_prompt.lower() for kw in stock_keywords)
+                if is_stock_query and not tool_was_called:
+                    messages.append({"role": "assistant", "content": raw_output})
+                    messages.append({"role": "user", "content": "You MUST call TOOL step first!"})
+                    continue
+                return content
+
+            elif step == "TOOL":
+                print(f"🔧 TOOL called with input: '{tool_input}'")
+                result = stock_data(tool_input)
+                print(f"📊 Tool result: {result}")
+                messages.append({"role": "assistant", "content": raw_output})
+                messages.append({
+                    "role": "user",
+                    "content": f'Data: {result}. Respond with: {{"step": "OUTPUT", "content": "..."}}'
+                })
+
+            else:
+                messages.append({"role": "assistant", "content": raw_output})
+
+        except Exception as e:
+            print(f"💥 EXCEPTION at iteration {iteration}: {repr(e)}")
+            return f"❌ Error: {str(e)}"
+
+    return "Unable to get response from agent"
 
 # ─────────────────────────────────────────────
 # ROUTES
 # ─────────────────────────────────────────────
+
+
+# Used by ChatServlet → chat.jsp
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        data = request.get_json()
+        user_message = data.get('message', '')
+        model = data.get('model', 'qwen/qwen3-32b')  # ← read model
+
+        if not user_message:
+            return jsonify({"error": "Message required"}), 400
+
+        reply = run_agent(user_message, model=model)  # ← pass to agent
+        return jsonify({"reply": reply})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+IST = pytz.timezone("Asia/Kolkata")
+def is_market_open() -> bool:
+    now = datetime.now(IST)
+    market_open  = now.replace(hour=9,  minute=15, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return now.weekday() < 5 and market_open <= now <= market_close
+
 @app.route('/quote', methods=['GET'])
 def quote():
     try:
-        stock_code = request.args.get(
-            'stock_code',
-            ''
-        ).upper().strip()
-
-        exchange_code = request.args.get(
-            'exchange_code',
-            'NSE'
-        ).upper().strip()
+        stock_code    = request.args.get('stock_code', '').upper().strip()
+        exchange_code = request.args.get('exchange_code', 'NSE').upper().strip()
 
         if not stock_code:
+            return jsonify({"error": "stock_code is required"}), 400
+
+        if not is_market_open():
+            # ── OFF HOURS → yfinance ──────────────────────────────
+            print(f"🕐 Market closed — yfinance for {stock_code}")
+            raw = json.loads(stock_data_yfinance(stock_code))
+            if "error" in raw:
+                return jsonify(raw), 500
             return jsonify({
-                "error": "stock_code is required"
-            }), 400
+                "symbol":   stock_code,
+                "ltp":      raw["price"],
+                "open":     raw["open"],
+                "high":     raw["high"],
+                "low":      raw["low"],
+                "change":   raw["change_amt"],
+                "change%":  raw["change_pct"],
+                "volume":   raw["volume"],
+                "time":     raw["time"],
+                "exchange": exchange_code,
+                "source":   "yfinance (market closed)"
+            })
 
+        # ── MARKET HOURS → Breeze ─────────────────────────────────
         init_breeze_session()
-
         response = breeze.get_quotes(
             stock_code=stock_code,
             exchange_code=exchange_code,
@@ -465,32 +711,22 @@ def quote():
             right="others",
             strike_price="0"
         )
-
-        if (
-            response.get("Status") == 200
-            and response.get("Success")
-        ):
+        if response.get("Status") == 200 and response.get("Success"):
             q = response["Success"][0]
-
             return jsonify({
-                "symbol": stock_code,
-                "ltp": q.get("ltp", "N/A"),
-                "open": q.get("open", "N/A"),
-                "high": q.get("high", "N/A"),
-                "low": q.get("low", "N/A"),
-                "change": q.get("ltp_change", "N/A"),
-                "change%": q.get("ltp_change_percentage", "N/A"),
-                "volume": q.get("total_quantity_traded", "N/A"),
-                "time": q.get("last_update_time", "N/A"),
+                "symbol":   stock_code,
+                "ltp":      q.get("ltp", "N/A"),
+                "open":     q.get("open", "N/A"),
+                "high":     q.get("high", "N/A"),
+                "low":      q.get("low", "N/A"),
+                "change":   q.get("ltp_change", "N/A"),
+                "change%":  q.get("ltp_change_percentage", "N/A"),
+                "volume":   q.get("total_quantity_traded", "N/A"),
+                "time":     q.get("last_update_time", "N/A"),
                 "exchange": exchange_code,
+                "source":   "breeze (live)"
             })
-
-        return jsonify({
-            "error": response.get(
-                "Error",
-                "No data returned"
-            )
-        }), 500
+        return jsonify({"error": response.get("Error", "No data")}), 500
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -516,19 +752,22 @@ def scrip_list():
 
 @app.route('/history', methods=['GET'])
 def history():
-    """Serves OHLC history for Plotly candlestick chart in stockChart.js"""
-    from datetime import datetime, timedelta
     try:
-        stock_code = request.args.get("stock_code", "").upper().strip()
+        stock_code    = request.args.get("stock_code", "").upper().strip()
         exchange_code = request.args.get("exchange_code", "NSE").upper().strip()
-        days = int(request.args.get("days", 1))
+        days          = int(request.args.get("days", 1))
 
         if not stock_code:
             return jsonify({"error": "stock_code required"}), 400
 
-        init_breeze_session()
+        if not is_market_open():
+            # ── OFF HOURS → yfinance OHLC history ────────────────
+            print(f"🕐 Market closed — yfinance history for {stock_code}")
+            return get_history_yfinance(stock_code, days)
 
-        to_dt = datetime.now()
+        # ── MARKET HOURS → Breeze ─────────────────────────────────
+        init_breeze_session()
+        to_dt   = datetime.now()
         from_dt = to_dt - timedelta(days=days)
         interval = "1minute" if days <= 1 else ("5minute" if days <= 5 else "1day")
 
@@ -540,11 +779,45 @@ def history():
             exchange_code=exchange_code,
             product_type="cash",
         )
-
         if resp.get("Status") == 200 and resp.get("Success"):
             return jsonify(resp["Success"])
 
         return jsonify({"error": resp.get("Error", "No data")}), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def get_history_yfinance(symbol: str, days: int):
+    """Returns OHLC history from yfinance in same format as Breeze."""
+    try:
+        yf_symbol = f"{symbol}.NS"
+        ticker    = yf.Ticker(yf_symbol)
+
+        # Match interval logic to Breeze
+        if days <= 1:
+            hist     = ticker.history(period="1d", interval="1m")
+        elif days <= 5:
+            hist     = ticker.history(period="5d", interval="5m")
+        else:
+            hist     = ticker.history(period="1mo", interval="1d")
+
+        if hist.empty:
+            return jsonify({"error": f"No yfinance history for {symbol}"}), 500
+
+        rows = []
+        for dt, row in hist.iterrows():
+            rows.append({
+                "datetime": str(dt),
+                "open":     round(float(row["Open"]),   2),
+                "high":     round(float(row["High"]),   2),
+                "low":      round(float(row["Low"]),    2),
+                "close":    round(float(row["Close"]),  2),
+                "volume":   int(row["Volume"]),
+                "source":   "yfinance"
+            })
+
+        return jsonify(rows)
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

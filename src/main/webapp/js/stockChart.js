@@ -1,27 +1,20 @@
 // stockChart.js — Plotly.js candlestick chart
 
-const BASE_URLS = [
-    "https://fintech-application-backend.onrender.com",
-    "http://localhost:5000"
-];
+const CHART_API_BASE = "http://localhost:5000";
 
 async function fetchOHLCHistory(symbol, days) {
-    for (const baseUrl of BASE_URLS) {
-        try {
-            const resp = await fetch(
-                `${baseUrl}/history?stock_code=${encodeURIComponent(symbol)}&days=${days}`
-            );
-            if (!resp.ok) continue;
-
-            const data = await resp.json();
-            if (data.error) continue;
-
-            return Array.isArray(data) ? data : [];
-        } catch (e) {
-            console.error("OHLC fetch error from", baseUrl, e.message);
-        }
+    try {
+        const resp = await fetch(
+            `${CHART_API_BASE}/history?stock_code=${encodeURIComponent(symbol)}&days=${days}`
+        );
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        if (data.error) return [];
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        console.error("OHLC fetch error:", e.message);
+        return [];
     }
-    return [];
 }
 
 async function renderCandlestick(symbol, days) {

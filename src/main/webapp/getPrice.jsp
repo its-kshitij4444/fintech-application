@@ -24,8 +24,8 @@
         exchange = exchange.trim().toUpperCase();
 
         String[] baseUrls = {
+            "http://localhost:5000",
             "https://fintech-application-backend.onrender.com",
-            "http://localhost:5000"
         };
 
         JSONObject flaskData = null;

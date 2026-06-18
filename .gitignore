@@ -3,8 +3,9 @@ build/
 target/
 *.class
 *.war
-!app.war
 *.ear
+build.ps1
+app.war
 
 # Eclipse-specific files
 .classpath

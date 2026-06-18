@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="css/style.css">
     <!-- Plotly for candlestick chart (replaces Chart.js for this page) -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <script src="js/script.js" defer></script>
-    <script src="js/stockChart.js" defer></script>
+    <script src="js/script.js?v=4" defer></script>
+    <script src="js/stockChart.js?v=4" defer></script>
     <style>
         /* ── Search Autocomplete ── */
         .search-wrapper {

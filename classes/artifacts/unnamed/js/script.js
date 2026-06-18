@@ -5,23 +5,17 @@ let refreshInterval = null;
 let isLoading       = false;
 let scripData       = [];        // loaded from scrip_master.csv via Flask
 let activeIndex     = -1;        // keyboard nav index for dropdown
-const BASE_URLS = [
-    "https://fintech-application-backend.onrender.com",
-    "http://localhost:5000"
-];
+const API_BASE = "http://localhost:5000";
 
 // ── Load scrip master from Flask ─────────────────────────────────────────────
 async function loadScripMaster() {
-    for (const baseUrl of BASE_URLS) {
-        try {
-            const resp = await fetch(`${baseUrl}/scrip-list`);
-            if (!resp.ok) continue;
-            scripData = await resp.json();
-            console.log("✅ Scrip master loaded:", scripData.length, "stocks");
-            return;
-        } catch (e) {
-            console.warn("Scrip master not available from", baseUrl, e.message);
-        }
+    try {
+        const resp = await fetch(`${API_BASE}/scrip-list`);
+        if (!resp.ok) return;
+        scripData = await resp.json();
+        console.log("✅ Scrip master loaded:", scripData.length, "stocks");
+    } catch (e) {
+        console.warn("Scrip master not available:", e.message);
     }
 }
 
