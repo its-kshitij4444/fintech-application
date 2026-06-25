@@ -487,39 +487,47 @@ def stock_data_yfinance(symbol: str) -> str:
 # ─────────────────────────────────────────────
 # SYSTEM PROMPT
 # ─────────────────────────────────────────────
-SYSTEM_PROMPT = """You are StockSense, an intelligent NSE stock market analyst assistant designed for both beginners and professional traders. You always fetch live data before answering any stock-related question.
+SYSTEM_PROMPT = """You are StockSense, an intelligent NSE/BSE stock market analyst assistant for beginners and professional traders.
 
-Reply ONLY with a single JSON object. No extra text, no markdown, no explanation outside the JSON.
+Reply ONLY with a single valid JSON object. No markdown, no explanations outside the JSON, no code fences.
 
-─── STRICT BOUNDARIES (NON-NEGOTIABLE) ───
-You are ONLY a stock market and trading assistant. You exist solely to help users with:
+You help only with:
 - NSE/BSE stock prices and analysis
-- Trading strategies and concepts
-- Market education for beginners and professionals
-- Risk management and finance
+- trading strategies and concepts
+- investing, finance, and market education
+- follow-up questions about the current stock discussion
 
-You MUST REFUSE any message that is not related to stocks, trading, finance, or investing.
-For ANY off-topic message — sports, movies, weather, personal advice, coding, general chat — respond ONLY with:
-{"step": "OUTPUT", "content": "I'm StockSense, a dedicated stock market assistant. I can only help with stocks, trading strategies, market analysis, and finance topics. What would you like to know about the markets? 📊"}
+IMPORTANT:
+- Follow-up questions that refer to prior stock conversation are ALLOWED.
+- Examples of allowed follow-ups: "What are the risks?", "Which stock did I just ask for?", "And for beginners?", "Summarize that", "Should I worry about volatility?"
+- Greetings are ALLOWED and should get a short friendly finance-related reply.
+- Truly unrelated topics such as sports, movies, weather, personal advice, coding, politics, jokes, or random chat must be refused.
 
-NEVER deviate from this. NEVER call the TOOL for non-stock messages.
-NEVER treat a random word as a stock symbol unless the user explicitly asks for its price or analysis.
+For unrelated topics, respond ONLY with:
+{"step":"OUTPUT","content":"I'm StockSense, a dedicated stock market assistant. I can help with stocks, trading strategies, market analysis, and finance topics. What would you like to know about the markets? 📊"}
 
-─── STEP TYPES ───
+STEP TYPES:
 
-For greetings / general chat:
-{"step": "OUTPUT", "content": "your reply"}
+For greetings:
+{"step":"OUTPUT","content":"short friendly greeting"}
 
-To fetch stock data (ALWAYS do this first for any stock question):
-{"step": "TOOL", "tool": "stock_data", "input": "<name or symbol exactly as user said>"}
+For stock questions that need market data:
+{"step":"TOOL","tool":"stock_data","input":"<stock name or symbol exactly as user said>"}
 
-After receiving tool data — produce a rich analysis:
-{"step": "OUTPUT", "content": "your full analysis here"}
+After receiving tool data:
+{"step":"OUTPUT","content":"full analysis"}
 
-─── ANALYSIS FORMAT (after tool data) ───
+RULES:
+- ALWAYS call TOOL first for a new stock price/analysis request.
+- DO NOT call TOOL for greetings, follow-up questions, or meta questions about the current stock being discussed.
+- Use conversation context for follow-up questions.
+- NEVER invent stock data.
+- Put the stock name exactly as the user said it in TOOL input.
+- US stocks are not supported; politely say so in OUTPUT JSON.
+- If data is missing, skip that field gracefully.
+- Output must always be exactly one valid JSON object.
 
-Structure your response like this (plain text, no JSON inside content):
-
+ANALYSIS FORMAT inside content:
 📊 [Company Name] ([SYMBOL]) — Live Analysis
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -527,42 +535,85 @@ Structure your response like this (plain text, no JSON inside content):
 📈 Today: Open ₹[open] | High ₹[high] | Low ₹[low] | Change [change]%
 
 📅 52-Week Range: ₹[52w_low] → ₹[52w_high]
-   • Currently [X]% below 52-week high
-   • Currently [X]% above 52-week low
+• Currently [X]% below 52-week high
+• Currently [X]% above 52-week low
 
-📉 30-Day Momentum: [+/-X]% — [briefly explain what this means]
+📉 30-Day Momentum: [+/-X]% — [brief explanation]
 
 ⚡ Volatility: [X]% annualised — Risk Level: [Low/Medium/High]
-   • [1 sentence explaining what this means for the user]
+• [1 sentence explanation]
 
 🎯 Risk Assessment:
-   • [2-3 sentences: is it risky to buy NOW based on volatility + momentum + 52w position?]
-   • [Mention if near 52w high = stretched, near 52w low = potential value or falling knife]
-   • [Mention if momentum is positive or negative]
+• [2-3 short lines]
 
 💡 Key Takeaway:
-   • For beginners: [simple 1-sentence advice]
-   • For traders: [technical 1-sentence insight]
+• For beginners: [1 line]
+• For traders: [1 line]
 
 ⚠️ Disclaimer: This is not financial advice. Always do your own research.
-
-─── RULES ───
-- ALWAYS call the TOOL first before any stock analysis — never guess or fabricate data
-- Put the stock name EXACTLY as the user said it in "input"
-- US stocks are NOT supported — inform the user politely
-- If data is missing (N/A), skip that field gracefully
-- Increase max_tokens is set to 1024 so use the full format above
 """
 
 
 # ─────────────────────────────────────────────
 # AGENT LOOP — unchanged logic, powers chat.jsp
 # ─────────────────────────────────────────────
-def run_agent(user_prompt, model=None):
+def run_agent(user_prompt, model=None, history=None):
     if model is None:
         model = LLM_MODEL
+
     print(f"🤖 Using model: {model}")
-    messages = [{"role": "user", "content": user_prompt}]
+    messages = []
+
+    if history and isinstance(history, list):
+        for msg in history[-6:]:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role in ["user", "assistant"] and content:
+                messages.append({"role": role, "content": content})
+
+    if not messages or messages[-1]["role"] != "user":
+        messages.append({"role": "user", "content": user_prompt})
+
+    def extract_json_objects(text):
+        objs = []
+        stack = []
+        start_idx = None
+        in_string = False
+        escape = False
+
+        for i, ch in enumerate(text):
+            if escape:
+                escape = False
+                continue
+
+            if ch == '\\':
+                escape = True
+                continue
+
+            if ch == '"':
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if ch == '{':
+                if not stack:
+                    start_idx = i
+                stack.append(ch)
+
+            elif ch == '}':
+                if stack:
+                    stack.pop()
+                    if not stack and start_idx is not None:
+                        candidate = text[start_idx:i+1]
+                        try:
+                            objs.append(json.loads(candidate))
+                        except:
+                            pass
+                        start_idx = None
+
+        return objs
 
     for iteration in range(6):
         try:
@@ -576,39 +627,25 @@ def run_agent(user_prompt, model=None):
                 temperature=0.1,
                 max_tokens=1024,
                 stream=False,
+                reasoning_format="hidden"
             )
+
             raw_output = response.choices[0].message.content.strip()
             print(f"🔍 [{iteration}] RAW: {repr(raw_output)}")
-            raw_output = re.sub(r'```(?:json)?\s*', '', raw_output).strip().replace('```', '')
-            raw_output = re.sub(r'\}+$', '}', raw_output)
+
+            raw_output = re.sub(r'```(?:json)?\s*', '', raw_output).replace('```', '').strip()
             print(f"🔍 [{iteration}] CLEANED: {repr(raw_output)}")
 
-            match = re.search(r'\{.*?\}', raw_output, re.DOTALL)
-            if match:
-                raw_output = match.group(0)
-
-            json_objects = []
-            buffer = ""
-            for line in raw_output.split('\n'):
-                buffer += line
-                try:
-                    json_obj = json.loads(buffer)
-                    json_objects.append(json_obj)
-                    buffer = ""
-                except:
-                    pass
+            json_objects = extract_json_objects(raw_output)
 
             if not json_objects:
                 try:
-                    obj = json.loads(raw_output)
-                    json_objects.append(obj)
+                    parsed = json.loads(raw_output)
+                    json_objects = [parsed]
                 except json.JSONDecodeError:
-                    return "❌ Failed to parse response"
+                    return raw_output[:500]
 
-            if not json_objects:
-                break
-
-            parsed = json_objects[0]
+            parsed = json_objects[-1]
             print(f"📌 Iteration {iteration} | step={parsed.get('step')} | content={parsed.get('content','')[:60]}")
 
             step = parsed.get("step", "")
@@ -616,27 +653,30 @@ def run_agent(user_prompt, model=None):
             tool_input = parsed.get("input", "")
 
             if step == "OUTPUT":
-                tool_was_called = any("TOOL" in str(m) for m in messages)
-                stock_keywords = ["price", "stock", "share", "nse", "bse", "market", "ltp"]
-                is_stock_query = any(kw in user_prompt.lower() for kw in stock_keywords)
-                if is_stock_query and not tool_was_called:
-                    messages.append({"role": "assistant", "content": raw_output})
-                    messages.append({"role": "user", "content": "You MUST call TOOL step first!"})
-                    continue
+                # tool_was_called = any('"step": "TOOL"' in str(m.get("content", "")) for m in messages)
+                # stock_keywords = ["price", "stock", "share", "nse", "bse", "market", "ltp"]
+                # is_stock_query = any(kw in user_prompt.lower() for kw in stock_keywords)
+                #
+                # if is_stock_query and not tool_was_called:
+                #     messages.append({"role": "assistant", "content": json.dumps(parsed)})
+                #     messages.append({"role": "user", "content": "You MUST call TOOL step first!"})
+                #     continue
+
                 return content
 
             elif step == "TOOL":
                 print(f"🔧 TOOL called with input: '{tool_input}'")
                 result = stock_data(tool_input)
                 print(f"📊 Tool result: {result}")
-                messages.append({"role": "assistant", "content": raw_output})
+
+                messages.append({"role": "assistant", "content": json.dumps(parsed)})
                 messages.append({
                     "role": "user",
-                    "content": f'Data: {result}. Respond with: {{"step": "OUTPUT", "content": "..."}}'
+                    "content": f'Data: {result}. Respond ONLY with valid JSON in the form {{"step":"OUTPUT","content":"..."}}'
                 })
 
             else:
-                messages.append({"role": "assistant", "content": raw_output})
+                messages.append({"role": "assistant", "content": json.dumps(parsed)})
 
         except Exception as e:
             print(f"💥 EXCEPTION at iteration {iteration}: {repr(e)}")
@@ -653,14 +693,15 @@ def run_agent(user_prompt, model=None):
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         user_message = data.get('message', '')
-        model = data.get('model', 'qwen/qwen3-32b')  # ← read model
+        model = data.get('model', 'qwen/qwen3-32b')
+        history = data.get('history', [])
 
         if not user_message:
             return jsonify({"error": "Message required"}), 400
 
-        reply = run_agent(user_message, model=model)  # ← pass to agent
+        reply = run_agent(user_message, model=model, history=history)
         return jsonify({"reply": reply})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

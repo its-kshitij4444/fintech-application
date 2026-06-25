@@ -4,17 +4,159 @@ import java.io.*;
 import javax.servlet.*;
 import javax.servlet.http.*;
 import javax.servlet.annotation.WebServlet;
-import org.json.JSONObject;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.*;
 
+//@WebServlet("/ChatServlet")
 public class ChatServlet extends HttpServlet {
 
-    private static final String[] PYTHON_AGENT_URLS = {
-            "https://fintech-application-backend.onrender.com/chat",
-            "http://127.0.0.1:5000/chat"
-    };
+    private static final String PYTHON_AGENT_URL = "http://127.0.0.1:5000/chat";
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> getChatHistory(HttpSession session) {
+        List<Map<String, Object>> history =
+                (List<Map<String, Object>>) session.getAttribute("chatHistory");
+
+        if (history == null) {
+            history = new ArrayList<>();
+            session.setAttribute("chatHistory", history);
+        }
+        return history;
+    }
+
+    private String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "")
+                .replace("\t", "\\t");
+    }
+
+    private String unescapeJson(String s) {
+        if (s == null) return null;
+
+        StringBuilder out = new StringBuilder();
+
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+
+            if (c == '\\' && i + 1 < s.length()) {
+                char next = s.charAt(++i);
+
+                switch (next) {
+                    case '"': out.append('"'); break;
+                    case '\\': out.append('\\'); break;
+                    case '/': out.append('/'); break;
+                    case 'b': out.append('\b'); break;
+                    case 'f': out.append('\f'); break;
+                    case 'n': out.append('\n'); break;
+                    case 'r': out.append('\r'); break;
+                    case 't': out.append('\t'); break;
+                    case 'u':
+                        if (i + 4 < s.length()) {
+                            String hex = s.substring(i + 1, i + 5);
+                            out.append((char) Integer.parseInt(hex, 16));
+                            i += 4;
+                        }
+                        break;
+                    default:
+                        out.append(next);
+                        break;
+                }
+            } else {
+                out.append(c);
+            }
+        }
+
+        return out.toString();
+    }
+
+    private String buildHistoryJson(List<Map<String, Object>> history) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+
+        for (int i = 0; i < history.size(); i++) {
+            Map<String, Object> msg = history.get(i);
+
+            sb.append("{")
+                    .append("\"role\":\"").append(escapeJson(String.valueOf(msg.get("role")))).append("\",")
+                    .append("\"content\":\"").append(escapeJson(String.valueOf(msg.get("content")))).append("\"")
+                    .append("}");
+
+            if (i < history.size() - 1) sb.append(",");
+        }
+
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private String buildFullHistoryResponse(List<Map<String, Object>> history) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"history\":[");
+
+        for (int i = 0; i < history.size(); i++) {
+            Map<String, Object> msg = history.get(i);
+
+            sb.append("{")
+                    .append("\"role\":\"").append(escapeJson(String.valueOf(msg.get("role")))).append("\",")
+                    .append("\"content\":\"").append(escapeJson(String.valueOf(msg.get("content")))).append("\",")
+                    .append("\"timestamp\":\"").append(escapeJson(String.valueOf(msg.get("timestamp")))).append("\"")
+                    .append("}");
+
+            if (i < history.size() - 1) sb.append(",");
+        }
+
+        sb.append("]}");
+        return sb.toString();
+    }
+
+    private String extractJsonField(String json, String field) {
+        String key = "\"" + field + "\":";
+        int idx = json.indexOf(key);
+        if (idx == -1) return null;
+
+        int startQuote = json.indexOf("\"", idx + key.length());
+        if (startQuote == -1) return null;
+
+        StringBuilder value = new StringBuilder();
+        boolean escaped = false;
+
+        for (int i = startQuote + 1; i < json.length(); i++) {
+            char c = json.charAt(i);
+
+            if (escaped) {
+                value.append('\\').append(c);   // preserve the escape sequence
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                return unescapeJson(value.toString());
+            } else {
+                value.append(c);
+            }
+        }
+
+        return null;
+    }
+
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
+        response.setContentType("application/json; charset=UTF-8");
+        PrintWriter out = response.getWriter();
+
+        try {
+            HttpSession session = request.getSession();
+            List<Map<String, Object>> history = getChatHistory(session);
+            out.print(buildFullHistoryResponse(history));
+        } catch (Exception e) {
+            out.print("{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
+        }
+    }
 
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
@@ -26,121 +168,106 @@ public class ChatServlet extends HttpServlet {
         try {
             String userMessage = request.getParameter("message");
             String model = request.getParameter("model");
+
             if (model == null || model.trim().isEmpty()) {
                 model = "qwen/qwen3-32b";
             }
 
-            System.out.println("\n========== CHAT REQUEST ==========");
-            System.out.println("User message: " + userMessage);
-            System.out.println("Model selected: " + model);
-
             if (userMessage == null || userMessage.trim().isEmpty()) {
-                JSONObject error = new JSONObject();
-                error.put("error", "Message cannot be empty");
-                System.out.println("ERROR: Empty message");
-                out.print(error.toString());
+                out.print("{\"error\":\"Message cannot be empty\"}");
                 return;
             }
 
-            String aiReply = callPythonAgent(userMessage, model);
-            System.out.println("AI Reply: " + aiReply);
+            HttpSession session = request.getSession();
+            List<Map<String, Object>> history = getChatHistory(session);
 
-            JSONObject response_obj = new JSONObject();
-            response_obj.put("reply", aiReply);
+            Map<String, Object> userEntry = new HashMap<>();
+            userEntry.put("role", "user");
+            userEntry.put("content", userMessage.trim());
+            userEntry.put("timestamp", String.valueOf(System.currentTimeMillis()));
+            history.add(userEntry);
 
-            System.out.println("Sending response: " + response_obj.toString());
-            System.out.println("========== END REQUEST ==========\n");
+            int start = Math.max(0, history.size() - 6);
+            List<Map<String, Object>> recentHistory = new ArrayList<>(history.subList(start, history.size()));
 
-            out.print(response_obj.toString());
+            String aiReply = callPythonAgent(userMessage, model, recentHistory);
+
+            Map<String, Object> aiEntry = new HashMap<>();
+            aiEntry.put("role", "assistant");
+            aiEntry.put("content", aiReply);
+            aiEntry.put("timestamp", String.valueOf(System.currentTimeMillis()));
+            history.add(aiEntry);
+
+            if (history.size() > 20) {
+                history = new ArrayList<>(history.subList(history.size() - 20, history.size()));
+                session.setAttribute("chatHistory", history);
+            }
+
+            out.print("{\"reply\":\"" + escapeJson(aiReply) + "\"}");
 
         } catch (Exception e) {
-            System.err.println("❌ SERVLET ERROR: " + e.getClass().getName());
             e.printStackTrace();
-            JSONObject error = new JSONObject();
-            error.put("error", e.getMessage());
-            out.print(error.toString());
+            out.print("{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
         }
     }
 
-    private static String callPythonAgent(String message, String model) {
-        JSONObject requestBody = new JSONObject();
-        requestBody.put("message", message);
-        requestBody.put("model", model);
-        String jsonInput = requestBody.toString();
-        System.out.println("Request JSON: " + jsonInput);
+    private String callPythonAgent(String message, String model, List<Map<String, Object>> history) {
+        HttpURLConnection conn = null;
 
-        Exception lastError = null;
+        try {
+            String historyJson = buildHistoryJson(history);
 
-        for (String agentUrl : PYTHON_AGENT_URLS) {
-            HttpURLConnection conn = null;
-            try {
-                System.out.println("Trying Python agent at: " + agentUrl);
+            String jsonInput = "{"
+                    + "\"message\":\"" + escapeJson(message) + "\","
+                    + "\"model\":\"" + escapeJson(model) + "\","
+                    + "\"history\":" + historyJson
+                    + "}";
 
-                URL url = new URL(agentUrl);
-                conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setConnectTimeout(10000);   // 10s to connect
-                conn.setReadTimeout(120000);      // 2 min to read (LLM takes time)
-                conn.setDoOutput(true);
+            URL url = new URL(PYTHON_AGENT_URL);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(120000);
+            conn.setDoOutput(true);
 
-                byte[] input = jsonInput.getBytes(StandardCharsets.UTF_8);
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(input, 0, input.length);
-                }
-
-                System.out.println("Request sent, waiting for response...");
-                int responseCode = conn.getResponseCode();
-                System.out.println("Response code from " + agentUrl + ": " + responseCode);
-
-                if (responseCode != 200) {
-                    BufferedReader errorReader = new BufferedReader(
-                            new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8)
-                    );
-                    StringBuilder errorMsg = new StringBuilder();
-                    String errorLine;
-                    while ((errorLine = errorReader.readLine()) != null) {
-                        errorMsg.append(errorLine).append("\n");
-                    }
-                    errorReader.close();
-                    System.out.println("⚠️ Non-200 from " + agentUrl + ": " + errorMsg);
-                    // Don't break — try next URL
-                    continue;
-                }
-
-                BufferedReader in = new BufferedReader(
-                        new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)
-                );
-                StringBuilder result = new StringBuilder();
-                String line;
-                while ((line = in.readLine()) != null) {
-                    result.append(line);
-                }
-                in.close();
-
-                String responseText = result.toString();
-                System.out.println("✅ Response from " + agentUrl + ": " + responseText);
-
-                JSONObject responseObj = new JSONObject(responseText);
-                return responseObj.optString("reply", responseObj.optString("error", "No response"));
-
-            } catch (java.net.ConnectException e) {
-                lastError = e;
-                System.err.println("❌ Cannot connect to " + agentUrl + ": " + e.getMessage());
-            } catch (java.net.SocketTimeoutException e) {
-                lastError = e;
-                System.err.println("⏱️ Timeout on " + agentUrl + ": " + e.getMessage());
-            } catch (Exception e) {
-                lastError = e;
-                System.err.println("❌ Error on " + agentUrl + ": " + e.getClass().getName() + " - " + e.getMessage());
-            } finally {
-                if (conn != null) conn.disconnect();
+            byte[] input = jsonInput.getBytes(StandardCharsets.UTF_8);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(input, 0, input.length);
             }
-        }
 
-        // All URLs failed
-        System.err.println("❌ All backend URLs exhausted");
-        if (lastError != null) lastError.printStackTrace();
-        return "❌ Could not reach the Python backend on Render or localhost. Is the server running?";
+            int responseCode = conn.getResponseCode();
+
+            InputStream stream = (responseCode >= 200 && responseCode < 300)
+                    ? conn.getInputStream()
+                    : conn.getErrorStream();
+
+            BufferedReader in = new BufferedReader(
+                    new InputStreamReader(stream, StandardCharsets.UTF_8)
+            );
+
+            StringBuilder result = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null) {
+                result.append(line);
+            }
+            in.close();
+
+            String responseText = result.toString();
+
+            if (responseCode >= 200 && responseCode < 300) {
+                String reply = extractJsonField(responseText, "reply");
+                return reply != null ? reply : "No response";
+            } else {
+                String error = extractJsonField(responseText, "error");
+                return "❌ Backend error: " + (error != null ? error : "Unknown error");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "❌ Could not reach local Python backend. Make sure stock_agent_server.py is running on port 5000.";
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 }

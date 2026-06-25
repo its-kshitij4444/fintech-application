@@ -300,40 +300,49 @@
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
 
-        function formatTime() {
-            const now = new Date();
-            return now.toLocaleTimeString('en-US', { 
-                hour: '2-digit', 
+        function formatTime(ts) {
+            if (!ts) {
+                const now = new Date();
+                return now.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            }
+            const d = new Date(ts);
+            return d.toLocaleTimeString('en-US', {
+                hour: '2-digit',
                 minute: '2-digit',
-                hour12: true 
+                hour12: true
             });
         }
 
-        function addMessage(text, isUser) {
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+
+        function addMessage(text, isUser, ts = null, clearWelcome = false) {
+            if (clearWelcome) {
+                chatContainer.innerHTML = '';
+            }
+
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + (isUser ? 'user' : 'ai');
 
-            // Format AI messages — convert newlines to <br> and escape user input
-            let formattedText;
-            if (isUser) {
-                // Escape user input to prevent XSS
-                formattedText = text
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;");
-            } else {
-                // AI response — render newlines as <br> and bold ━━━ dividers
-                formattedText = text
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
+            let formattedText = escapeHtml(text);
+            if (!isUser) {
+                formattedText = formattedText
                     .replace(/\n/g, "<br>")
                     .replace(/━+/g, '<hr style="border:none;border-top:1px solid #ccc;margin:6px 0;">');
             }
 
-            messageDiv.innerHTML = '<div>' +
+            messageDiv.innerHTML =
+                '<div>' +
                 '<div class="message-content">' + formattedText + '</div>' +
-                '<div class="message-timestamp">' + formatTime() + '</div>' +
+                '<div class="message-timestamp">' + formatTime(ts) + '</div>' +
                 '</div>';
 
             chatContainer.appendChild(messageDiv);
@@ -344,13 +353,14 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ai';
             messageDiv.id = 'typingIndicator';
-            
-            messageDiv.innerHTML = '<div class="typing-indicator">' +
+
+            messageDiv.innerHTML =
+                '<div class="typing-indicator">' +
                 '<div class="typing-dot"></div>' +
                 '<div class="typing-dot"></div>' +
                 '<div class="typing-dot"></div>' +
                 '</div>';
-            
+
             chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
@@ -360,27 +370,38 @@
             if (indicator) indicator.remove();
         }
 
+        async function loadChatHistory() {
+            try {
+                const response = await fetch('ChatServlet');
+                const data = await response.json();
+
+                if (data.history && data.history.length > 0) {
+                    chatContainer.innerHTML = '';
+                    data.history.forEach(msg => {
+                        addMessage(msg.content, msg.role === 'user', msg.timestamp);
+                    });
+                }
+            } catch (e) {
+                console.error('History load failed:', e);
+            }
+        }
+
         async function sendMessage() {
             const message = messageInput.value.trim();
-            
             if (!message) return;
 
-            // Add user message to chat
             addMessage(message, true);
             messageInput.value = '';
             sendBtn.disabled = true;
-
-            // Show typing indicator
             showTypingIndicator();
 
             try {
-                // Send to ChatServlet
                 const response = await fetch('ChatServlet', {
-				    method: 'POST',
-				    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-				    body: 'message=' + encodeURIComponent(message)
-				        + '&model=' + encodeURIComponent(document.getElementById('modelSelect').value)
-				});
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'message=' + encodeURIComponent(message)
+                        + '&model=' + encodeURIComponent(document.getElementById('modelSelect').value)
+                });
 
                 const data = await response.json();
                 removeTypingIndicator();
@@ -409,7 +430,7 @@
             }
         }
 
-        // Focus on input on page load
+        loadChatHistory();
         messageInput.focus();
     </script>
 
