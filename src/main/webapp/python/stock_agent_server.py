@@ -443,42 +443,49 @@ def stock_data_yfinance(symbol: str) -> str:
     try:
         symbol = symbol.upper().strip()
         symbol = re.sub(r"\.(NS|BO|NSE|BSE)$", "", symbol)
+        symbol = resolve_symbol(symbol)
 
         yf_symbol = f"{symbol}.NS"
         ticker = yf.Ticker(yf_symbol)
 
-        hist = ticker.history(period="2d", interval="1d")
+        hist = ticker.history(period="5d", interval="1d", auto_adjust=False)
 
         if hist.empty:
             return json.dumps({"error": f"No yfinance quote for {symbol}"})
 
-        latest = hist.iloc[-1]
+        valid_hist = hist.dropna(subset=["Close"])
 
-        open_price = float(latest["Open"]) if pd.notna(latest["Open"]) else 0
-        high_price = float(latest["High"]) if pd.notna(latest["High"]) else 0
-        low_price  = float(latest["Low"]) if pd.notna(latest["Low"]) else 0
-        close_price = float(latest["Close"]) if pd.notna(latest["Close"]) else 0
-        volume = int(latest["Volume"]) if pd.notna(latest["Volume"]) else 0
+        if valid_hist.empty:
+            return json.dumps({"error": f"No valid close price for {symbol}"})
 
-        if open_price:
+        latest = valid_hist.iloc[-1]
+
+        open_price = float(latest["Open"]) if pd.notna(latest["Open"]) else None
+        high_price = float(latest["High"]) if pd.notna(latest["High"]) else None
+        low_price = float(latest["Low"]) if pd.notna(latest["Low"]) else None
+        close_price = float(latest["Close"]) if pd.notna(latest["Close"]) else None
+        volume = int(latest["Volume"]) if pd.notna(latest["Volume"]) else "N/A"
+
+        if close_price is None:
+            return json.dumps({"error": f"Invalid close price for {symbol}"})
+
+        if open_price is not None and open_price > 0:
             change_amt = round(close_price - open_price, 2)
             change_pct = round(((close_price - open_price) / open_price) * 100, 2)
         else:
             change_amt = "N/A"
             change_pct = "N/A"
 
-        time_str = str(hist.index[-1])
-
         return json.dumps({
             "symbol": symbol,
             "price": round(close_price, 2),
-            "open": round(open_price, 2),
-            "high": round(high_price, 2),
-            "low": round(low_price, 2),
+            "open": round(open_price, 2) if open_price is not None else "N/A",
+            "high": round(high_price, 2) if high_price is not None else "N/A",
+            "low": round(low_price, 2) if low_price is not None else "N/A",
             "change_amt": change_amt,
             "change_pct": change_pct,
             "volume": volume,
-            "time": time_str
+            "time": str(latest.name)
         })
 
     except Exception as e:

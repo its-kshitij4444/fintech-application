@@ -235,6 +235,7 @@
 		            style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid #ddd;
 		                   font-size:14px;margin-top:6px;outline:none;color:#333;">
 		        <option value="none">— Off (Manual Trading) —</option>
+                <option value="fintrade">FinTradeSim Strategy</option>
 		        <option value="momentum">📈 Momentum</option>
 		        <option value="trend">〰️ Trend Following (MA Cross)</option>
 		        <option value="breakout">🚀 Breakout</option>
@@ -505,6 +506,19 @@ function showMsg(text, type) {
 //── STRATEGY ENGINE ───────────────────────────────────────────────────────────
 
 const STRATEGY_INFO = {
+    fintrade: {
+        title: "FinTradeSim Strategy",
+        badge: "Prediction Model",
+        desc: "This strategy is based on the FinTradeSim prediction workflow. It uses moving average behavior and recent return patterns to generate BUY / SELL / HOLD style signals for paper trading simulation.",
+        details: [
+            { label: "Signal Speed", value: "Medium" },
+            { label: "Based On", value: "SMA20, SMA50, recent return, price trend" },
+            { label: "Best For", value: "Balanced simulation trading" },
+            { label: "Risk Level", value: "Medium" }
+        ],
+        tip: "Use when you want a broader predictive-style strategy instead of only momentum, crossover, or breakout logic."
+    },
+
     momentum: {
         title:  "📈 Momentum Strategy",
         badge:  "Trend-Based",
@@ -575,7 +589,7 @@ function changeStrategy(val) {
 }
 
 //── Config ────────────────────────────────────────────────────────────────────
-let activeStrategy   = "none";   // "none" | "momentum" | "trend" | "breakout"
+let activeStrategy   = "none";   // "none" | "momentum" | "trend" | "breakout" | "fintrade"
 let strategyEnabled  = false;
 let lastSignal       = "HOLD";   // prevent repeat signals
 const signalTimes    = [];       // for Plotly markers
@@ -583,6 +597,33 @@ const signalPrices   = [];
 const signalColors   = [];
 const signalSymbols  = [];
 const signalTexts    = [];
+
+// 0. FinTradeSim Strategy
+function avg(arr) {
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function strategyFinTrade(priceArr) {
+    if (priceArr.length < 50) return "HOLD";
+
+    const latest = priceArr[priceArr.length - 1];
+    const prev = priceArr[priceArr.length - 2];
+
+    const sma20 = avg(priceArr.slice(-20));
+    const sma50 = avg(priceArr.slice(-50));
+
+    const recentReturn = prev !== 0 ? ((latest - prev) / prev) : 0;
+
+    let score = 0;
+
+    if (latest > sma20) score += 1;
+    if (sma20 > sma50) score += 1;
+    if (recentReturn > 0) score += 1;
+
+    if (score >= 3) return "BUY";
+    if (score <= 1) return "SELL";
+    return "HOLD";
+}
 
 //── 1. MOMENTUM STRATEGY ─────────────────────────────────────────────────────
 //Buys when last N ticks are consistently rising, sells when falling
@@ -631,6 +672,7 @@ function runStrategy() {
  if (!strategyEnabled || activeStrategy === "none") return;
 
  let signal = "HOLD";
+ if (activeStrategy === "fintrade") signal = strategyFinTrade(prices);
  if (activeStrategy === "momentum") signal = strategyMomentum(prices);
  if (activeStrategy === "trend")    signal = strategyTrend(prices);
  if (activeStrategy === "breakout") signal = strategyBreakout(prices);
