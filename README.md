@@ -137,19 +137,6 @@ pip install -r requirements.txt
 
 ---
 
-## Screenshots
-
-Add screenshots of the following pages:
-
-- Home Page
-- Live Market Dashboard
-- Stock Details
-- Portfolio
-- Paper Trading
-- AI Chat Assistant
-
----
-
 ## Future Improvements
 
 - Real-time WebSocket market updates
